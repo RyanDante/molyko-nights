@@ -32,7 +32,7 @@ function App() {
     <main className="game-shell">
       <header className="topbar">
         <a className="brand" href="/" aria-label="Molyko Nights home">
-          <span className="brand-mark">MN</span>
+          <img src="./assets/molyko_nights_neon_city_emblem.png" alt="" aria-hidden="true" />
           <span>MOLYKO <strong>NIGHTS</strong></span>
         </a>
         <span className="chapter-label">A LIFE IN BUEA · DAY {game.clock.day}</span>

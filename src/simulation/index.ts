@@ -1,8 +1,13 @@
 import { STARTING_SCENARIO } from './config/balance'
+import { configurationError, GAME_BALANCE } from './config/balance'
+import { copyGameState } from './models/copy'
+import { gameStateError } from './models/validation'
 import type { GameState } from './models/game'
 
-export { GAME_BALANCE, STARTING_SCENARIO } from './config/balance'
+export { GAME_BALANCE, STARTING_SCENARIO, configurationError as validateConfiguration } from './config/balance'
 export { performAction } from './actions/performAction'
+export { advanceSimulationTime } from './systems/time'
+export type { TimeAdvanceResult } from './systems/time'
 export type { Action, ActionResult } from './actions/types'
 export type {
   Education,
@@ -17,19 +22,20 @@ export type {
 } from './models/game'
 
 export function createGame(seed: number = STARTING_SCENARIO.randomSeed): GameState {
-  return {
-    ...STARTING_SCENARIO,
-    player: { ...STARTING_SCENARIO.player },
-    money: { ...STARTING_SCENARIO.money, transactions: [] },
-    education: { ...STARTING_SCENARIO.education },
-    skills: { ...STARTING_SCENARIO.skills },
-    employment: { ...STARTING_SCENARIO.employment },
-    clock: { ...STARTING_SCENARIO.clock },
-    events: [{
-      id: 1,
-      day: STARTING_SCENARIO.clock.day,
-      description: 'You begin independent life in a small room in Molyko.',
-    }],
-    randomSeed: seed >>> 0,
+  if (!Number.isSafeInteger(seed)) {
+    throw new RangeError('Random seed must be a safe integer.')
   }
+  const configError = configurationError(GAME_BALANCE)
+  if (configError) throw new Error(`Invalid game configuration: ${configError}`)
+  const state = copyGameState(STARTING_SCENARIO)
+  state.events = [{
+    id: 1,
+    day: state.clock.day,
+    date: state.currentDate,
+    description: 'You begin independent life in a small room in Molyko.',
+  }]
+  state.randomSeed = seed >>> 0
+  const stateError = gameStateError(state)
+  if (stateError) throw new Error(`Invalid starting scenario: ${stateError}`)
+  return state
 }

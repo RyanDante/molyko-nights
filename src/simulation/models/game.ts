@@ -18,6 +18,7 @@ export interface Money {
 export interface Transaction {
   id: number
   day: number
+  date: string
   description: string
   amount: number
   balanceAfter: number
@@ -42,6 +43,7 @@ export interface SimulationClock {
 export interface LifeEvent {
   id: number
   day: number
+  date: string
   description: string
 }
 
@@ -52,6 +54,9 @@ export interface GameState {
   skills: Record<SkillName, number>
   employment: Employment
   clock: SimulationClock
+  startDate: string
+  currentDate: string
+  birthDate: string
   events: LifeEvent[]
   randomSeed: number
 }
