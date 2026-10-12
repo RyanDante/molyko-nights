@@ -2,6 +2,7 @@ import { useState } from 'react'
 import {
   createGame,
   GAME_BALANCE,
+  isEligibleForEmployment,
   performAction,
   type Action,
   type DailySummary,
@@ -65,7 +66,10 @@ function App() {
             <div className="profile-details">
               <span>{game.player.age} years old</span>
               <span>{game.education.level} education</span>
-              <span>{game.employment.role ?? 'Looking for work'}</span>
+              <span>{game.employment.role
+                ?? (isEligibleForEmployment(game)
+                  ? `Eligible for ${GAME_BALANCE.action.work.employmentRole}`
+                  : 'Looking for work')}</span>
             </div>
           </article>
 
@@ -122,6 +126,14 @@ function App() {
             </div>
             <div className="action-grid">
               <ActionButton icon="↗" title="Work" detail="Earn FCFA · 4 hours" onClick={() => takeAction({ type: 'work' })} />
+              {isEligibleForEmployment(game) && (
+                <ActionButton
+                  icon="✓"
+                  title="Accept job"
+                  detail={GAME_BALANCE.action.work.employmentRole}
+                  onClick={() => takeAction({ type: 'acceptEmployment' })}
+                />
+              )}
               <ActionButton icon="⌁" title="Study" detail="Build a skill · 2 hours" onClick={() => takeAction({ type: 'study', skill: 'business' })} />
               <ActionButton icon="☾" title="Rest" detail="Restore energy · 8 hours" onClick={() => takeAction({ type: 'rest' })} />
               <ActionButton icon="＋" title="Eat" detail="A meal · 30 minutes" onClick={() => takeAction({ type: 'eat' })} />

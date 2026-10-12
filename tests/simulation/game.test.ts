@@ -3,6 +3,7 @@ import {
   advanceSimulationTime,
   createGame,
   GAME_BALANCE,
+  isEligibleForEmployment,
   performAction,
   STARTING_SCENARIO,
   validateConfiguration,
@@ -204,7 +205,7 @@ describe('life simulation', () => {
     expect(result.state.events[0]).toEqual(originalEvent)
   })
 
-  it('repeats work outcomes from the same seed and grants employment after three shifts', () => {
+  it('keeps the third shift casual and derives job eligibility from completed shifts', () => {
     const playThreeShifts = () => {
       let game = createGame(42)
       const wages: number[] = []
@@ -221,14 +222,166 @@ describe('life simulation', () => {
     const first = playThreeShifts()
     const second = playThreeShifts()
     expect(first.wages).toEqual(second.wages)
+    expect(GAME_BALANCE.action.work).toMatchObject({
+      casualWageMin: 4_000,
+      casualWageMax: 7_000,
+      employedWage: 8_000,
+      durationMinutes: 240,
+      energyCost: 28,
+      hungerIncrease: 18,
+    })
+    expect(first.wages.every((wage) => wage >= 4_000 && wage <= 7_000)).toBe(true)
     expect(first.game.employment).toEqual({
+      status: 'unemployed',
+      role: null,
+      shiftsCompleted: 3,
+    })
+    expect(isEligibleForEmployment(first.game)).toBe(true)
+    expect(first.game.events).toHaveLength(1)
+    expect(first.game.events.some((event) => event.description.includes('job'))).toBe(false)
+  })
+
+  it('accepts eligible employment atomically without advancing time or changing finances and needs', () => {
+    let game = createGame(42)
+    for (let shift = 0; shift < GAME_BALANCE.action.work.employmentAfterShifts; shift += 1) {
+      const workResult = performAction(game, { type: 'work' })
+      expect(workResult.ok).toBe(true)
+      if (!workResult.ok) throw new Error(workResult.message)
+      game = workResult.state
+    }
+    const before = structuredClone(game)
+    const result = performAction(game, { type: 'acceptEmployment' })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    expect(game).toEqual(before)
+    expect(result.state.employment).toEqual({
       status: 'employed',
       role: GAME_BALANCE.action.work.employmentRole,
       shiftsCompleted: GAME_BALANCE.action.work.employmentAfterShifts,
     })
-    expect(first.game.events.at(-1)?.description).toContain('landed a job')
-    expect(first.game.events.at(-1)?.date).toBe(first.game.currentDate)
-    expect(first.game.events.at(-1)?.day).toBe(first.game.clock.day)
+    expect(result.state.clock).toEqual(before.clock)
+    expect(result.state.currentDate).toBe(before.currentDate)
+    expect(result.state.player).toEqual(before.player)
+    expect(result.state.money).toEqual(before.money)
+    expect(result.state.randomSeed).toBe(before.randomSeed)
+    expect(result.dailySummaries).toEqual([])
+    expect(result.state.events).toHaveLength(before.events.length + 1)
+    expect(result.state.events.at(-1)).toMatchObject({
+      id: before.events.length + 1,
+      day: before.clock.day,
+      date: before.currentDate,
+      description: `You accepted a job as a ${GAME_BALANCE.action.work.employmentRole}.`,
+    })
+
+    const acceptedState = structuredClone(result.state)
+    result.state.money.transactions[0]!.description = 'mutated accepted snapshot'
+    result.state.events[0]!.description = 'mutated accepted snapshot'
+    expect(game).toEqual(before)
+    expect(game.money.transactions[0]).toEqual(before.money.transactions[0])
+    expect(game.events[0]).toEqual(before.events[0])
+    expect(result.state.employment.status).toBe(acceptedState.employment.status)
+  })
+
+  it('rejects ineligible, repeated, and malformed employment acceptance without mutation', () => {
+    const ineligible = createGame()
+    ineligible.employment.shiftsCompleted = GAME_BALANCE.action.work.employmentAfterShifts - 1
+    const ineligibleBefore = structuredClone(ineligible)
+    const ineligibleResult = performAction(ineligible, { type: 'acceptEmployment' })
+    expect(ineligibleResult.ok).toBe(false)
+    expect(ineligibleResult.state).toBe(ineligible)
+    expect(ineligible).toEqual(ineligibleBefore)
+
+    const eligible = createGame()
+    eligible.employment.shiftsCompleted = GAME_BALANCE.action.work.employmentAfterShifts
+    const accepted = performAction(eligible, { type: 'acceptEmployment' })
+    expect(accepted.ok).toBe(true)
+    if (!accepted.ok) return
+    const employedBefore = structuredClone(accepted.state)
+    const repeatedResult = performAction(accepted.state, { type: 'acceptEmployment' })
+    expect(repeatedResult.ok).toBe(false)
+    expect(repeatedResult.state).toBe(accepted.state)
+    expect(accepted.state).toEqual(employedBefore)
+
+    const malformedResult = performAction(
+      eligible,
+      { type: 'acceptEmployment', role: 'another job' } as Action,
+    )
+    expect(malformedResult.ok).toBe(false)
+    expect(eligible.employment.status).toBe('unemployed')
+    expect(eligible.employment.role).toBeNull()
+  })
+
+  it('preserves employment-state invariants for status, role, and shift count', () => {
+    const invalidEmploymentStates = [
+      { status: 'employed', role: null, shiftsCompleted: 3 },
+      { status: 'employed', role: 'Another role', shiftsCompleted: 3 },
+      { status: 'employed', role: GAME_BALANCE.action.work.employmentRole, shiftsCompleted: 2 },
+      { status: 'on_leave', role: null, shiftsCompleted: 0 },
+    ]
+    for (const employment of invalidEmploymentStates) {
+      const game = createGame()
+      game.employment = employment as typeof game.employment
+      const before = structuredClone(game)
+      const result = performAction(game, { type: 'rest' })
+      expect(result.ok).toBe(false)
+      expect(result.message).toContain('Invalid game state')
+      expect(game).toEqual(before)
+    }
+  })
+
+  it.each([69, 70, 89, 90])('preserves employed wage and hunger penalties at hunger %i', (hunger) => {
+    const game = createGame(42)
+    game.employment = {
+      status: 'employed',
+      role: GAME_BALANCE.action.work.employmentRole,
+      shiftsCompleted: GAME_BALANCE.action.work.employmentAfterShifts,
+    }
+    game.player.energy = 100
+    game.player.hunger = hunger
+    const expectedSeed = (Math.imul(game.randomSeed, 1_664_525) + 1_013_904_223) >>> 0
+    const initialHealth = game.player.health
+    const result = performAction(game, { type: 'work' })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.state.money.transactions[0]?.amount).toBe(hunger < 70 ? 8_000 : 6_000)
+    expect(result.state.randomSeed).toBe(expectedSeed)
+    expect(result.state.player.health).toBe(hunger < 90
+      ? initialHealth
+      : initialHealth - GAME_BALANCE.action.work.hungerHealthPenalty)
+    expect(result.state.employment.shiftsCompleted).toBe(
+      GAME_BALANCE.action.work.employmentAfterShifts + 1,
+    )
+  })
+
+  it('records employed work, daily costs, and summary totals through the shared accounting path', () => {
+    const game = createGame(42)
+    game.employment = {
+      status: 'employed',
+      role: GAME_BALANCE.action.work.employmentRole,
+      shiftsCompleted: GAME_BALANCE.action.work.employmentAfterShifts,
+    }
+    game.clock.minuteOfDay = 20 * 60
+    game.player.energy = 100
+    game.player.hunger = 25
+    const result = performAction(game, { type: 'work' })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    expect(result.state.currentDate).toBe('2026-01-02')
+    expect(result.state.money.transactions.map(({ amount, description }) => ({ amount, description })))
+      .toEqual([
+        { amount: 8_000, description: 'Work shift' },
+        { amount: -GAME_BALANCE.dailyExpense, description: 'Daily living costs' },
+      ])
+    expect(result.dailySummaries).toHaveLength(1)
+    expect(result.dailySummaries[0]).toMatchObject({
+      dateCompleted: '2026-01-01',
+      earnings: 8_000,
+      expensesPaid: GAME_BALANCE.dailyExpense,
+      expenseUnpaid: 0,
+      closingBalance: game.money.balance + 8_000 - GAME_BALANCE.dailyExpense,
+    })
   })
 
   it('does not mutate state on rejected low-energy work', () => {

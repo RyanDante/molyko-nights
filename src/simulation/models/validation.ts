@@ -1,4 +1,5 @@
 import { ageOnDate, daysBetween, isValidDate } from './calendar'
+import { GAME_BALANCE } from '../config/balance'
 import type { GameState } from './game'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -55,7 +56,9 @@ export function gameStateError(value: unknown): string | null {
   if (!isIntegerBetween(employment.shiftsCompleted, 0, Number.MAX_SAFE_INTEGER)
     || (employment.status !== 'unemployed' && employment.status !== 'employed')
     || (employment.status === 'unemployed' && employment.role !== null)
-    || (employment.status === 'employed' && !isNonEmptyString(employment.role))) {
+    || (employment.status === 'employed'
+      && (employment.role !== GAME_BALANCE.action.work.employmentRole
+        || employment.shiftsCompleted < GAME_BALANCE.action.work.employmentAfterShifts))) {
     return 'Employment state is invalid.'
   }
   if (!isIntegerBetween(clock.day, 1, Number.MAX_SAFE_INTEGER)

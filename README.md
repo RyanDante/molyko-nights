@@ -74,9 +74,14 @@ by the development screen is derived from the session count and configuration.
 
 Hunger is a 0–100 meter where higher values mean hungrier (the UI inverts its
 displayed bar). Starting at hunger 70, work earnings are reduced by 25%; at
-90+, work also costs health. These and action durations, needs changes, wages,
-meal price, daily expenses, and the work-to-employment milestone are
-provisional values in `src/simulation/config/balance.ts`. The current economy
-remains a prototype: a repeated work/rest/eat loop can grow the balance over
-time, so profitability is measured by a regression test rather than described
-as balanced.
+90+, work also costs health. Three successful shifts make an unemployed player
+eligible for the configured Cafe assistant role. Eligibility does not change
+employment or wages: the third shift is still casual work, and the player must
+accept the role explicitly. Accepting is time-free and records a dated life
+event without changing money or needs. Until acceptance, work pays the casual
+seeded wage of 4,000–7,000 FCFA; afterward, work pays 8,000 FCFA before hunger
+penalties. These thresholds, wages, action durations, needs changes, meal
+price, and daily expenses are provisional values in
+`src/simulation/config/balance.ts`. The current economy remains a prototype: a
+repeated work/rest/eat loop can grow the balance over time, so profitability is
+measured by a regression test rather than described as balanced.

@@ -5,6 +5,7 @@ export type Action =
   | { type: 'study'; skill: SkillName }
   | { type: 'rest' }
   | { type: 'eat' }
+  | { type: 'acceptEmployment' }
 
 export type ActionResult =
   | { ok: true; state: GameState; message: string; dailySummaries: DailySummary[] }

@@ -6,6 +6,7 @@ import {
 } from '../config/balance'
 import { copyGameState } from '../models/copy'
 import { gameStateError } from '../models/validation'
+import { isEligibleForEmployment } from '../systems/employment'
 import type { Action, ActionResult } from './types'
 import type { GameState } from '../models/game'
 import { nextRandom } from '../systems/random'
@@ -78,6 +79,14 @@ function validateAction(state: GameState, action: unknown): string | null {
         return 'You do not have enough money for a meal.'
       }
       break
+    case 'acceptEmployment':
+      if (state.employment.status === 'employed') {
+        return 'You are already employed.'
+      }
+      if (!isEligibleForEmployment(state)) {
+        return `You need at least ${GAME_BALANCE.action.work.employmentAfterShifts} successful work shifts to accept this job.`
+      }
+      break
     default:
       return 'Unknown or malformed action.'
   }
@@ -93,7 +102,7 @@ export function performAction(state: GameState, action: Action): ActionResult {
   if (validationMessage) return reject(state, validationMessage)
 
   const next = copyGameState(state)
-  let duration: number
+  let duration: number | null
   let message: string
   let healthPenaltyEvent = false
   let educationMilestoneReached = false
@@ -127,10 +136,7 @@ export function performAction(state: GameState, action: Action): ActionResult {
         next.employment.status === 'unemployed'
         && next.employment.shiftsCompleted >= config.employmentAfterShifts
       ) {
-        next.employment.status = 'employed'
-        next.employment.role = config.employmentRole
-        actionEvents.push(`You landed a job as a ${config.employmentRole}.`)
-        message += ` You are now employed as a ${config.employmentRole}.`
+        message += ` You are eligible to accept the ${config.employmentRole} role.`
       }
       break
     }
@@ -177,12 +183,29 @@ export function performAction(state: GameState, action: Action): ActionResult {
       message = 'You had a meal and feel a little better.'
       break
     }
+    case 'acceptEmployment': {
+      const role = GAME_BALANCE.action.work.employmentRole
+      next.employment.status = 'employed'
+      next.employment.role = role
+      actionEvents.push(`You accepted a job as a ${role}.`)
+      duration = null
+      message = `You accepted a job as a ${role}.`
+      break
+    }
   }
 
   if (healthPenaltyEvent) {
     addEvent(next, 'You lost health after working while very hungry.')
   }
   for (const event of actionEvents) addEvent(next, event)
+
+  if (duration === null) {
+    const resultStateError = gameStateError(next)
+    if (resultStateError) {
+      return reject(state, `Action would create an invalid game state: ${resultStateError}`)
+    }
+    return { ok: true, state: next, message, dailySummaries: [] }
+  }
 
   const timeResult = advanceSimulationTime(next, duration, {
     openingState: state,
