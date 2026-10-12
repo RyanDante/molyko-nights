@@ -14,26 +14,17 @@
 
 .brand {
   display: inline-flex;
-  gap: 11px;
   align-items: center;
-  color: var(--ink);
-  text-decoration: none;
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: .14em;
+  justify-content: center;
+  width: 58px;
+  height: 58px;
 }
 
-.brand strong { color: var(--purple); }
-.brand-mark {
-  display: grid;
-  width: 34px;
-  height: 34px;
-  place-items: center;
-  border-radius: 11px;
-  color: white;
-  background: var(--purple);
-  font-size: 11px;
-  letter-spacing: .03em;
+.brand-logo {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 .chapter-label, .eyebrow, .event-day {
@@ -172,6 +163,17 @@
 .skill-row { display: flex; justify-content: space-between; color: #605a68; font-size: 12px; text-transform: capitalize; }
 .skill-row strong { color: var(--purple); }
 .education-note { margin-top: 15px; }
+.education-progress { display: grid; gap: 7px; margin-top: 12px; }
+.unpaid-total { margin-top: 6px; color: #a25849; }
+.money-card .unpaid-total { color: #f0c1b6; }
+.summary-list { display: grid; gap: 14px; }
+.summary-day { padding-top: 12px; border-top: 1px solid var(--line); }
+.summary-day:first-child { padding-top: 0; border-top: 0; }
+.summary-day h3 { margin: 0 0 6px; color: var(--ink); font-size: 12px; }
+.summary-day h3 span { color: var(--muted); font-weight: 500; }
+.summary-day p, .summary-day li { margin: 4px 0 0; color: #625c6b; font-size: 10px; line-height: 1.5; }
+.summary-day ul { margin: 6px 0 0; padding-left: 16px; }
+.summary-day .summary-milestone { color: var(--purple); font-weight: 700; }
 .event-list { display: grid; gap: 13px; margin: 0; padding: 0; list-style: none; }
 .event-list li { padding-left: 11px; border-left: 2px solid #e4d6eb; }
 .event-day { font-size: 8px; }
@@ -188,6 +190,7 @@ footer { padding: 25px 0 0; color: #99929f; font-size: 9px; font-weight: 700; le
 
 @media (max-width: 460px) {
   .topbar { min-height: 65px; }
+  .brand { width: 48px; height: 48px; }
   .chapter-label { max-width: 130px; text-align: right; font-size: 8px; }
   .intro { padding: 29px 0 20px; }
   .card { padding: 17px; }

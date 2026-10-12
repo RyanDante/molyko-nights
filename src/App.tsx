@@ -4,9 +4,11 @@ import {
   GAME_BALANCE,
   performAction,
   type Action,
+  type DailySummary,
   type GameState,
   type SkillName,
 } from './simulation'
+import molykoNightsLogo from './assets/molyko_nights_logo.svg'
 import './App.css'
 
 const numberFormat = new Intl.NumberFormat('fr-CM')
@@ -14,15 +16,20 @@ const numberFormat = new Intl.NumberFormat('fr-CM')
 function App() {
   const [game, setGame] = useState<GameState>(() => createGame())
   const [message, setMessage] = useState('')
+  const [dailySummaries, setDailySummaries] = useState<DailySummary[]>([])
 
   function takeAction(action: Action) {
     const result = performAction(game, action)
     setMessage(result.message)
-    if (result.ok) setGame(result.state)
+    if (result.ok) {
+      setGame(result.state)
+      if (result.dailySummaries.length > 0) setDailySummaries(result.dailySummaries)
+    }
   }
 
   function startOver() {
     setGame(createGame())
+    setDailySummaries([])
     setMessage('A new day in Molyko begins.')
   }
 
@@ -32,8 +39,7 @@ function App() {
     <main className="game-shell">
       <header className="topbar">
         <a className="brand" href="/" aria-label="Molyko Nights home">
-          <img src="./assets/molyko_nights_neon_city_emblem.png" alt="" aria-hidden="true" />
-          <span>MOLYKO <strong>NIGHTS</strong></span>
+          <img className="brand-logo" src={molykoNightsLogo} alt="" aria-hidden="true" />
         </a>
         <span className="chapter-label">A LIFE IN BUEA · DAY {game.clock.day}</span>
       </header>
@@ -62,6 +68,34 @@ function App() {
               <span>{game.employment.role ?? 'Looking for work'}</span>
             </div>
           </article>
+
+          {dailySummaries.length > 0 && (
+            <article className="card daily-summary">
+              <div className="card-heading compact">
+                <div>
+                  <p className="eyebrow">DAY CLOSED</p>
+                  <h2>Daily summary</h2>
+                </div>
+                <span className="time">{dailySummaries.at(-1)?.dateNowCurrent}</span>
+              </div>
+              <div className="summary-list">
+                {dailySummaries.map((summary) => (
+                  <section className="summary-day" key={`${summary.dateCompleted}-${summary.dateNowCurrent}`}>
+                    <h3>{summary.dateCompleted} <span>→ {summary.dateNowCurrent}</span></h3>
+                    <p>Balance {numberFormat.format(summary.openingBalance)} → {numberFormat.format(summary.closingBalance)} FCFA</p>
+                    <p>Earned {numberFormat.format(summary.earnings)} · spent {numberFormat.format(summary.expensesPaid)} · unpaid {numberFormat.format(summary.expenseUnpaid)} FCFA</p>
+                    <p>Needs: hunger {signed(summary.needsChange.hunger)}, energy {signed(summary.needsChange.energy)}, health {signed(summary.needsChange.health)}</p>
+                    {summary.educationMilestoneReached && <p className="summary-milestone">Education milestone reached.</p>}
+                    {summary.events.length > 0 && (
+                      <ul>
+                        {summary.events.map((event) => <li key={event.id}>{event.description}</li>)}
+                      </ul>
+                    )}
+                  </section>
+                ))}
+              </div>
+            </article>
+          )}
 
           <article className="card needs-card">
             <div className="card-heading">
@@ -101,6 +135,11 @@ function App() {
             <p className="eyebrow">IN YOUR POCKET</p>
             <p className="balance">{numberFormat.format(game.money.balance)} <span>FCFA</span></p>
             <p className="subtle">Daily living costs: {numberFormat.format(GAME_BALANCE.dailyExpense)} FCFA</p>
+            {game.money.unpaidLivingCostsTotal > 0 && (
+              <p className="subtle unpaid-total">
+                Cumulative unpaid living costs: {numberFormat.format(game.money.unpaidLivingCostsTotal)} FCFA
+              </p>
+            )}
           </article>
 
           <article className="card">
@@ -117,7 +156,22 @@ function App() {
                 </div>
               ))}
             </div>
-            <p className="subtle education-note">{game.education.studySessionsCompleted} study sessions completed</p>
+            <p className="subtle education-note">
+              {game.education.studySessionsCompleted} study sessions completed
+            </p>
+            <div className="education-progress">
+              <div className="need-label">
+                <span>{game.education.level === GAME_BALANCE.education.milestoneLevel
+                  ? 'Milestone reached'
+                  : `Next: ${GAME_BALANCE.education.milestoneLevel}`}</span>
+                <strong>{Math.min(game.education.studySessionsCompleted, GAME_BALANCE.education.studySessionsForMilestone)}/{GAME_BALANCE.education.studySessionsForMilestone}</strong>
+              </div>
+              <div className="meter" role="meter" aria-label="Education milestone progress" aria-valuemin={0} aria-valuemax={GAME_BALANCE.education.studySessionsForMilestone} aria-valuenow={Math.min(game.education.studySessionsCompleted, GAME_BALANCE.education.studySessionsForMilestone)}>
+                <span className="meter-fill violet" style={{
+                  width: `${Math.min(100, game.education.studySessionsCompleted / GAME_BALANCE.education.studySessionsForMilestone * 100)}%`,
+                }} />
+              </div>
+            </div>
           </article>
 
           <article className="card">
@@ -142,6 +196,10 @@ function App() {
       <footer>FICTIONALIZED MOLYKO, BUEA · YOUR JOURNEY IS YOURS TO SHAPE</footer>
     </main>
   )
+}
+
+function signed(value: number): string {
+  return value > 0 ? `+${value}` : String(value)
 }
 
 function Need({ label, value, tone, inverse = false }: {

@@ -31,6 +31,7 @@ describe('life simulation', () => {
     expect(result.state.education.studySessionsCompleted).toBe(1)
     expect(result.state.clock.minuteOfDay).toBe(600)
     expect(result.state.money.balance).toBe(game.money.balance)
+    expect(result.dailySummaries).toEqual([])
     expect(result.state.events.at(-1)).toMatchObject({
       id: 2,
       date: result.state.currentDate,
@@ -60,33 +61,147 @@ describe('life simulation', () => {
     expect(game).toEqual(before)
   })
 
-  it('rejects an action if its elapsed time would cause unpaid living costs', () => {
+  it('records a partially unpaid living expense without rejecting the action', () => {
     const game = createGame()
     game.clock.minuteOfDay = 23 * 60
-    game.money.balance = GAME_BALANCE.dailyExpense - 1
-    const before = structuredClone(game)
-    const result = performAction(game, { type: 'rest' })
-    expect(result.ok).toBe(false)
-    expect(result.state).toBe(game)
-    expect(game).toEqual(before)
-  })
-
-  it('charges exactly at midnight without logging routine expenses as life events', () => {
-    const game = createGame()
-    game.clock.minuteOfDay = 23 * 60
+    game.money.balance = 1_000
     const result = performAction(game, { type: 'rest' })
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.state.clock).toEqual({ day: 2, minuteOfDay: 420 })
+    expect(result.state.money.balance).toBe(0)
+    expect(result.state.money.unpaidLivingCostsTotal).toBe(500)
+    expect(result.state.money.transactions[0]).toMatchObject({
+      amount: -1_000,
+      date: '2026-01-01',
+      day: 1,
+      balanceAfter: 0,
+    })
+    expect(result.dailySummaries[0]).toMatchObject({
+      dateCompleted: '2026-01-01',
+      dateNowCurrent: '2026-01-02',
+      openingBalance: 1_000,
+      closingBalance: 0,
+      expensesPaid: 1_000,
+      expenseUnpaid: 500,
+    })
+    expect(result.dailySummaries[0]?.events).toHaveLength(1)
+    expect(result.dailySummaries[0]?.events[0]?.date).toBe('2026-01-01')
+  })
+
+  it('charges expenses against the completed date and returns its summary at midnight', () => {
+    const game = createGame()
+    game.clock.minuteOfDay = 16 * 60
+    const result = performAction(game, { type: 'rest' })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.state.clock).toEqual({ day: 2, minuteOfDay: 0 })
     expect(result.state.currentDate).toBe('2026-01-02')
     expect(result.state.money.balance).toBe(game.money.balance - GAME_BALANCE.dailyExpense)
     expect(result.state.money.transactions[0]).toMatchObject({
       amount: -GAME_BALANCE.dailyExpense,
-      date: '2026-01-02',
-      day: 2,
+      date: '2026-01-01',
+      day: 1,
       balanceAfter: result.state.money.balance,
     })
     expect(result.state.events).toHaveLength(1)
+    expect(result.dailySummaries).toHaveLength(1)
+    expect(result.dailySummaries[0]).toMatchObject({
+      dateCompleted: '2026-01-01',
+      dateNowCurrent: '2026-01-02',
+      openingBalance: game.money.balance,
+      closingBalance: result.state.money.balance,
+      expensesPaid: GAME_BALANCE.dailyExpense,
+      expenseUnpaid: 0,
+      needsChange: {
+        hunger: GAME_BALANCE.action.rest.hungerIncrease,
+        energy: 100 - game.player.energy,
+        health: GAME_BALANCE.action.rest.healthGain,
+      },
+    })
+    expect(result.dailySummaries[0]?.transactions[0]?.date).toBe('2026-01-01')
+  })
+
+  it('returns no daily summary before a day is closed', () => {
+    const result = performAction(createGame(), { type: 'eat' })
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.dailySummaries).toEqual([])
+  })
+
+  it('reconciles action income, expenses, and balances in the closing-day summary', () => {
+    const game = createGame(42)
+    game.clock.minuteOfDay = 20 * 60
+    const result = performAction(game, { type: 'work' })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const summary = result.dailySummaries[0]
+    expect(summary).toBeDefined()
+    expect(summary?.dateCompleted).toBe('2026-01-01')
+    expect(summary?.earnings).toBe(summary?.transactions
+      .filter((transaction) => transaction.amount > 0)
+      .reduce((total, transaction) => total + transaction.amount, 0))
+    expect(summary?.expensesPaid).toBe(summary?.transactions
+      .filter((transaction) => transaction.amount < 0)
+      .reduce((total, transaction) => total - transaction.amount, 0))
+    expect(summary?.openingBalance).toBe(game.money.balance)
+    expect(summary?.closingBalance).toBe(
+      summary!.openingBalance + summary!.earnings - summary!.expensesPaid,
+    )
+    expect(summary?.closingBalance).toBe(result.state.money.balance)
+  })
+
+  it('summarizes an action that ends after midnight against the date it started', () => {
+    const game = createGame(42)
+    game.clock.minuteOfDay = 21 * 60
+    const result = performAction(game, { type: 'work' })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.state.currentDate).toBe('2026-01-02')
+    expect(result.state.clock.minuteOfDay).toBe(60)
+    expect(result.dailySummaries).toHaveLength(1)
+    expect(result.dailySummaries[0]).toMatchObject({
+      dateCompleted: '2026-01-01',
+      dateNowCurrent: '2026-01-02',
+    })
+    expect(result.dailySummaries[0]?.transactions.every((transaction) =>
+      transaction.date === '2026-01-01',
+    )).toBe(true)
+  })
+
+  it('keeps unpaid costs cumulative without creating negative balances over multiple days', () => {
+    const game = createGame()
+    game.money.balance = 0
+    const result = advanceSimulationTime(game, 2 * 24 * 60)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.state.money.balance).toBe(0)
+    expect(result.state.money.unpaidLivingCostsTotal).toBe(2 * GAME_BALANCE.dailyExpense)
+    expect(result.state.money.transactions).toEqual([])
+    expect(result.state.events.filter((event) => event.description.includes('could not pay')))
+      .toHaveLength(2)
+    expect(result.dailySummaries.map((summary) => summary.expenseUnpaid))
+      .toEqual([GAME_BALANCE.dailyExpense, GAME_BALANCE.dailyExpense])
+    expect(result.dailySummaries.map((summary) => summary.closingBalance)).toEqual([0, 0])
+  })
+
+  it('isolates summary history from the returned game state', () => {
+    const game = createGame()
+    game.clock.minuteOfDay = 20 * 60
+    game.player.hunger = 90
+    const result = performAction(game, { type: 'work' })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const originalTransaction = structuredClone(result.state.money.transactions[0])
+    const originalEvent = structuredClone(result.state.events[0])
+    result.dailySummaries[0]!.transactions[0]!.description = 'changed summary'
+    result.dailySummaries[0]!.events.push({
+      id: 999,
+      day: 1,
+      date: '2026-01-01',
+      description: 'summary-only event',
+    })
+    expect(result.state.money.transactions[0]).toEqual(originalTransaction)
+    expect(result.state.events[0]).toEqual(originalEvent)
   })
 
   it('repeats work outcomes from the same seed and grants employment after three shifts', () => {
@@ -194,6 +309,10 @@ describe('life simulation', () => {
     expect(Object.isFrozen(STARTING_SCENARIO.player)).toBe(true)
     expect(Object.isFrozen(GAME_BALANCE.action.work)).toBe(true)
     expect(Reflect.set(STARTING_SCENARIO.player, 'age', 99)).toBe(false)
+    expect(validateConfiguration({
+      ...GAME_BALANCE,
+      education: { ...GAME_BALANCE.education, studySessionsForMilestone: 0 },
+    })).toContain('Education milestone')
   })
 
   it('keeps needs and skills within configured attribute bounds', () => {
@@ -272,8 +391,25 @@ describe('life simulation', () => {
     expect(result.state.clock).toEqual({ day: 4, minuteOfDay: 8 * 60 + 5 })
     expect(result.state.money.transactions).toHaveLength(3)
     expect(result.state.money.transactions.map((transaction) => transaction.date))
+      .toEqual(['2026-01-01', '2026-01-02', '2026-01-03'])
+    expect(result.dailySummaries.map((summary) => summary.dateCompleted))
+      .toEqual(['2026-01-01', '2026-01-02', '2026-01-03'])
+    expect(result.dailySummaries.map((summary) => summary.dateNowCurrent))
       .toEqual(['2026-01-02', '2026-01-03', '2026-01-04'])
+    expect(result.dailySummaries.map((summary) => summary.expensesPaid))
+      .toEqual([
+        GAME_BALANCE.dailyExpense,
+        GAME_BALANCE.dailyExpense,
+        GAME_BALANCE.dailyExpense,
+      ])
+    expect(result.dailySummaries.map((summary) => summary.closingBalance))
+      .toEqual([
+        game.money.balance - GAME_BALANCE.dailyExpense,
+        game.money.balance - 2 * GAME_BALANCE.dailyExpense,
+        result.state.money.balance,
+      ])
     expect(result.state.money.balance).toBe(game.money.balance - 3 * GAME_BALANCE.dailyExpense)
+    expect(result.dailySummaries[1]?.needsChange).toEqual({ hunger: 0, energy: 0, health: 0 })
   })
 
   it('advances age at a year boundary and on leap-day birthdays', () => {
@@ -349,6 +485,55 @@ describe('life simulation', () => {
     expect(play()).toEqual(play())
   })
 
+  it('advances education on the fifth successful study session exactly once', () => {
+    let game = createGame()
+    const milestoneEventsBefore = () => game.events.filter((event) =>
+      event.description.includes('advanced your education'),
+    ).length
+    for (let session = 1; session <= GAME_BALANCE.education.studySessionsForMilestone; session += 1) {
+      const result = performAction(game, { type: 'study', skill: 'business' })
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+      game = result.state
+      if (session < GAME_BALANCE.education.studySessionsForMilestone) {
+        expect(game.education.level).toBe(STARTING_SCENARIO.education.level)
+        expect(milestoneEventsBefore()).toBe(0)
+      }
+    }
+    expect(game.education.studySessionsCompleted).toBe(5)
+    expect(game.education.level).toBe(GAME_BALANCE.education.milestoneLevel)
+    expect(milestoneEventsBefore()).toBe(1)
+
+    const furtherStudy = performAction(game, { type: 'study', skill: 'business' })
+    expect(furtherStudy.ok).toBe(true)
+    if (furtherStudy.ok) {
+      expect(furtherStudy.state.education.studySessionsCompleted).toBe(6)
+      expect(furtherStudy.state.events.filter((event) =>
+        event.description.includes('advanced your education'),
+      )).toHaveLength(1)
+    }
+  })
+
+  it('includes the education milestone event in a closing-day summary', () => {
+    let game = createGame()
+    for (let session = 0; session < GAME_BALANCE.education.studySessionsForMilestone - 1; session += 1) {
+      const result = performAction(game, { type: 'study', skill: 'business' })
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+      game = result.state
+    }
+    game.clock.minuteOfDay = 22 * 60
+    game.player.energy = 50
+    const result = performAction(game, { type: 'study', skill: 'business' })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.dailySummaries).toHaveLength(1)
+    expect(result.dailySummaries[0]?.educationMilestoneReached).toBe(true)
+    expect(result.dailySummaries[0]?.events.some((event) =>
+      event.description.includes('advanced your education'),
+    )).toBe(true)
+  })
+
   it('documents profitable behavior in a repeated work, rest, and eat loop', () => {
     let game = createGame(42)
     while (game.clock.day < 31) {
@@ -364,5 +549,11 @@ describe('life simulation', () => {
     }
     expect(Number.isInteger(game.money.balance)).toBe(true)
     expect(game.money.balance).toBeGreaterThan(35_000)
+    const livingCostTransactions = game.money.transactions.filter(
+      (transaction) => transaction.description === 'Daily living costs',
+    )
+    expect(livingCostTransactions).toHaveLength(game.clock.day - 1)
+    expect(new Set(livingCostTransactions.map((transaction) => transaction.date)).size)
+      .toBe(livingCostTransactions.length)
   })
 })

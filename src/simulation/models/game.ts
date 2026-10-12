@@ -12,6 +12,7 @@ export interface Player {
 
 export interface Money {
   balance: number
+  unpaidLivingCostsTotal: number
   transactions: Transaction[]
 }
 
@@ -45,6 +46,24 @@ export interface LifeEvent {
   day: number
   date: string
   description: string
+}
+
+export interface DailySummary {
+  dateCompleted: string
+  dateNowCurrent: string
+  openingBalance: number
+  closingBalance: number
+  earnings: number
+  expensesPaid: number
+  expenseUnpaid: number
+  needsChange: {
+    hunger: number
+    energy: number
+    health: number
+  }
+  transactions: Transaction[]
+  events: LifeEvent[]
+  educationMilestoneReached: boolean
 }
 
 export interface GameState {

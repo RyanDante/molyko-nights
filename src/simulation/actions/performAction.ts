@@ -1,4 +1,9 @@
-import { configurationError, GAME_BALANCE, STUDY_SKILLS } from '../config/balance'
+import {
+  configurationError,
+  GAME_BALANCE,
+  STARTING_SCENARIO,
+  STUDY_SKILLS,
+} from '../config/balance'
 import { copyGameState } from '../models/copy'
 import { gameStateError } from '../models/validation'
 import type { Action, ActionResult } from './types'
@@ -90,8 +95,9 @@ export function performAction(state: GameState, action: Action): ActionResult {
   const next = copyGameState(state)
   let duration: number
   let message: string
-  let progressionEvent: string | null = null
   let healthPenaltyEvent = false
+  let educationMilestoneReached = false
+  const actionEvents: string[] = []
 
   switch (action.type) {
     case 'work': {
@@ -123,7 +129,7 @@ export function performAction(state: GameState, action: Action): ActionResult {
       ) {
         next.employment.status = 'employed'
         next.employment.role = config.employmentRole
-        progressionEvent = `You landed a job as a ${config.employmentRole}.`
+        actionEvents.push(`You landed a job as a ${config.employmentRole}.`)
         message += ` You are now employed as a ${config.employmentRole}.`
       }
       break
@@ -138,7 +144,15 @@ export function performAction(state: GameState, action: Action): ActionResult {
         next.skills[action.skill] + config.skillGain,
       )
       next.education.studySessionsCompleted += 1
-      progressionEvent = `You completed a study session and improved your ${action.skill} skill.`
+      actionEvents.push(`You completed a study session and improved your ${action.skill} skill.`)
+      if (
+        next.education.level === STARTING_SCENARIO.education.level
+        && next.education.studySessionsCompleted >= GAME_BALANCE.education.studySessionsForMilestone
+      ) {
+        next.education.level = GAME_BALANCE.education.milestoneLevel
+        educationMilestoneReached = true
+        actionEvents.push(`You advanced your education to ${GAME_BALANCE.education.milestoneLevel}.`)
+      }
       duration = config.durationMinutes
       message = `You studied ${action.skill} and improved your skill.`
       break
@@ -165,17 +179,25 @@ export function performAction(state: GameState, action: Action): ActionResult {
     }
   }
 
-  const timeResult = advanceSimulationTime(next, duration)
-  if (!timeResult.ok) return reject(state, timeResult.message)
-
   if (healthPenaltyEvent) {
-    addEvent(timeResult.state, 'You lost health after working while very hungry.')
+    addEvent(next, 'You lost health after working while very hungry.')
   }
-  if (progressionEvent) addEvent(timeResult.state, progressionEvent)
+  for (const event of actionEvents) addEvent(next, event)
+
+  const timeResult = advanceSimulationTime(next, duration, {
+    openingState: state,
+    educationMilestoneReached,
+  })
+  if (!timeResult.ok) return reject(state, timeResult.message)
 
   const resultStateError = gameStateError(timeResult.state)
   if (resultStateError) {
     return reject(state, `Action would create an invalid game state: ${resultStateError}`)
   }
-  return { ok: true, state: timeResult.state, message }
+  return {
+    ok: true,
+    state: timeResult.state,
+    message,
+    dailySummaries: timeResult.dailySummaries,
+  }
 }

@@ -39,8 +39,9 @@ export function gameStateError(value: unknown): string | null {
   }
   if (!isIntegerBetween(player.age, 0, 9_999)) return 'Player age is invalid.'
   if (!isIntegerBetween(money.balance, 0, Number.MAX_SAFE_INTEGER)
+    || !isIntegerBetween(money.unpaidLivingCostsTotal, 0, Number.MAX_SAFE_INTEGER)
     || !Array.isArray(money.transactions)) {
-    return 'Money state must have a non-negative integer FCFA balance and transaction list.'
+    return 'Money state must have non-negative integer FCFA balances and a transaction list.'
   }
   if (!isNonEmptyString(education.level)
     || !isIntegerBetween(education.studySessionsCompleted, 0, Number.MAX_SAFE_INTEGER)) {

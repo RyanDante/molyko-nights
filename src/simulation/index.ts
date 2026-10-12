@@ -7,9 +7,10 @@ import type { GameState } from './models/game'
 export { GAME_BALANCE, STARTING_SCENARIO, configurationError as validateConfiguration } from './config/balance'
 export { performAction } from './actions/performAction'
 export { advanceSimulationTime } from './systems/time'
-export type { TimeAdvanceResult } from './systems/time'
+export type { DailySummaryContext, TimeAdvanceResult } from './systems/time'
 export type { Action, ActionResult } from './actions/types'
 export type {
+  DailySummary,
   Education,
   Employment,
   GameState,

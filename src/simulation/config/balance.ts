@@ -22,6 +22,7 @@ export const STARTING_SCENARIO = deepFreeze<GameState>({
   },
   money: {
     balance: 35_000,
+    unpaidLivingCostsTotal: 0,
     transactions: [],
   },
   education: {
@@ -51,6 +52,10 @@ export const STARTING_SCENARIO = deepFreeze<GameState>({
 
 export const GAME_BALANCE = deepFreeze({
   dailyExpense: 1_500,
+  education: {
+    studySessionsForMilestone: 5,
+    milestoneLevel: 'Tertiary studies',
+  },
   action: {
     work: {
       durationMinutes: 240,
@@ -104,9 +109,17 @@ export function configurationError(configuration: unknown): string | null {
   }
   const value = configuration as Record<string, unknown>
   const action = value.action
+  const education = value.education
   if (!Number.isSafeInteger(value.dailyExpense) || (value.dailyExpense as number) < 0
-    || typeof action !== 'object' || action === null) {
+    || typeof action !== 'object' || action === null
+    || typeof education !== 'object' || education === null) {
     return 'Daily expense or action configuration is invalid.'
+  }
+  const educationConfig = education as Record<string, unknown>
+  if (!Number.isSafeInteger(educationConfig.studySessionsForMilestone)
+    || (educationConfig.studySessionsForMilestone as number) <= 0
+    || !isNonEmptyString(educationConfig.milestoneLevel)) {
+    return 'Education milestone configuration is invalid.'
   }
   const actionConfig = action as Record<string, unknown>
   const numericFields: Record<string, string[]> = {
